@@ -1,0 +1,32 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+backend/venv/
+backend/outputs/reports/*
+backend/outputs/figures/*
+backend/outputs/models/*
+!backend/outputs/reports/.gitkeep
+!backend/outputs/figures/.gitkeep
+!backend/outputs/models/.gitkeep
+
+# Node
+node_modules/
+.npm/
+
+# Datasets & Processed Data
+solexs_*/
+hel1os_*/
+backend/data/raw/*
+backend/data/processed/*
+!backend/data/raw/.gitkeep
+!backend/data/processed/.gitkeep
+
+# Next.js
+.next/
+out/
+build/
+.env*.local
