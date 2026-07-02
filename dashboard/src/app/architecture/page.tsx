@@ -64,17 +64,17 @@ export default function Architecture() {
           <Card className="border-border/40 bg-card/50 backdrop-blur-sm p-4 space-y-3">
             <CardHeader className="p-0 pb-2 border-b border-border/10">
               <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                <Shield className="h-4 w-4 text-electric-blue" /> Physics-Informed ML Constraints
+                <Shield className="h-4 w-4 text-electric-blue" /> Physics-Informed Feature Engineering
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0 pt-1 space-y-2">
               <p>
-                Our core inference engine utilizes a Physics-Informed Neural Network (PINN) architecture. Instead of relying purely on historical statistics, it solves Magnetohydrodynamics (MHD) equations at run-time:
+                Rather than feeding raw flux arrays into a black-box network, the Solar Behaviour Engine first derives physically meaningful features, which a gradient-boosted (XGBoost) classifier then learns to map to flare class - with SHAP giving real per-prediction attribution back to each feature:
               </p>
               <ul className="list-disc pl-4 space-y-1 mt-1 text-[11px]">
-                <li>Flux conservation constraints: {"\\(\\nabla \\cdot B = 0\\)"} enforced via specialized network layers.</li>
-                <li>Neupert lag limits computed on features to prevent false positive triggers.</li>
-                <li>Conductive and radiative cooling decay curves matched dynamically.</li>
+                <li>Neupert-effect cross-correlation and HXR→SXR lag, computed directly from telemetry (Neupert 1968; Dennis &amp; Zarro 1993).</li>
+                <li>Conductive/radiative cooling decay time constant, fit via log-linear regression on the post-peak SXR light curve.</li>
+                <li>GOES 1-8Å classification thresholds (NOAA SWPC standard) applied consistently across simulation, retrieval, and forecasting.</li>
               </ul>
             </CardContent>
           </Card>

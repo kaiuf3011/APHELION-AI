@@ -7,3 +7,6 @@ xgboost
 matplotlib
 seaborn
 shap
+flask
+flask-cors
+joblib

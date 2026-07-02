@@ -28,7 +28,10 @@ class ScientificValidationEngine:
         instrume = metadata.get("instrume", "UNKNOWN")
         
         # 1. Validate Telescope
-        if telescop not in ["Aditya-L1", "ADITYA-L1"]:
+        # Real SoLEXS L1 products report TELESCOP="AL1" (a mission shorthand,
+        # confirmed against actual AL1_SLX_L1_*.zip headers) while HEL1OS
+        # reports the full "Aditya-L1" - both are legitimate for this mission.
+        if telescop not in ["Aditya-L1", "ADITYA-L1", "AL1"]:
             flags.append(f"Invalid TELESCOP: {telescop}")
             score -= 40
             

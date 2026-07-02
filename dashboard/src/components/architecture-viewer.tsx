@@ -103,18 +103,18 @@ const initialNodes: ArchNode[] = [
   },
   {
     id: "predict",
-    name: "PINN Model Core",
+    name: "XGBoost Forecast Core",
     category: "predict",
     x: 720,
     y: 80,
     icon: Server,
     status: "nominal",
     details: {
-      description: "Physics-Informed Neural Network predicting flare probability using MHD constraints.",
+      description: "Gradient-boosted classifier predicting flare class from Solar Behaviour Engine fingerprints, with SHAP-based per-prediction attribution.",
       throughput: "50 Inferences/Sec",
       payloadFormat: "Risk Probabilities List",
-      latency: "12ms GPU Inference",
-      activeThreads: "CUDA Device 0"
+      latency: "12ms CPU Inference",
+      activeThreads: "XGBoost (CPU)"
     }
   },
   {

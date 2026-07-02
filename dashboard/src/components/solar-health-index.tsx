@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Activity, ShieldAlert, Sparkles, RefreshCw } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { ComponentState } from "./mission-status-card";
+import { fetchHealthIndex } from "@/lib/api";
 
 interface SolarHealthIndexProps {
   state?: ComponentState;
@@ -12,8 +14,19 @@ interface SolarHealthIndexProps {
 }
 
 export function SolarHealthIndex({ state = "normal", onRetry }: SolarHealthIndexProps) {
-  const [indexValue, setIndexValue] = useState(65); // Default Warning state (65%)
-  
+  const [override, setOverride] = useState<number | null>(null);
+
+  const query = useQuery({
+    queryKey: ["health-index"],
+    queryFn: fetchHealthIndex,
+    refetchInterval: 5000,
+  });
+
+  const indexValue = override ?? query.data?.value ?? 0;
+
+  const effectiveState: ComponentState =
+    state !== "normal" ? state : query.isLoading ? "loading" : query.isError ? "error" : "normal";
+
   // Detemine colors and label based on percentage
   const getIndexConfig = (val: number) => {
     if (val <= 30) {
@@ -55,7 +68,7 @@ export function SolarHealthIndex({ state = "normal", onRetry }: SolarHealthIndex
   const circumference = 2 * Math.PI * 65; // Radius = 65
   const strokeDashoffset = circumference - (indexValue / 100) * circumference;
 
-  if (state === "loading") {
+  if (effectiveState === "loading") {
     return (
       <div className="flex flex-col items-center justify-center p-4 w-full h-full min-h-[220px]">
         <div className="relative w-40 h-40 flex items-center justify-center">
@@ -77,7 +90,7 @@ export function SolarHealthIndex({ state = "normal", onRetry }: SolarHealthIndex
     );
   }
 
-  if (state === "empty") {
+  if (effectiveState === "empty") {
     return (
       <div className="flex flex-col items-center justify-center p-4 w-full h-full min-h-[220px] text-center">
         <Sparkles className="h-8 w-8 text-muted-foreground/40 mb-2 animate-pulse" />
@@ -89,7 +102,7 @@ export function SolarHealthIndex({ state = "normal", onRetry }: SolarHealthIndex
     );
   }
 
-  if (state === "error") {
+  if (effectiveState === "error") {
     return (
       <div className="flex flex-col items-center justify-center p-4 w-full h-full min-h-[220px] text-center border border-red/20 rounded-lg bg-red-950/5">
         <ShieldAlert className="h-8 w-8 text-red/60 mb-2 animate-bounce" />
@@ -98,8 +111,8 @@ export function SolarHealthIndex({ state = "normal", onRetry }: SolarHealthIndex
           ERR_SHI_CALIBRATION_FAIL: Helium sensor calibration timed out.
         </p>
         {onRetry && (
-          <button 
-            onClick={onRetry}
+          <button
+            onClick={() => { onRetry(); query.refetch(); }}
             className="mt-3 text-[10px] flex items-center gap-1 px-2 py-1 rounded bg-red/10 border border-red/30 text-red hover:bg-red/20 transition-all"
           >
             <RefreshCw className="h-2.5 w-2.5" /> Force Reset
@@ -171,7 +184,7 @@ export function SolarHealthIndex({ state = "normal", onRetry }: SolarHealthIndex
         </span>
         <div className="grid grid-cols-4 gap-1 w-full text-[9px] font-mono">
           <button
-            onClick={() => setIndexValue(15)}
+            onClick={() => setOverride(15)}
             className={`py-1 rounded border text-center transition-all ${
               indexValue <= 30
                 ? "bg-emerald/20 border-emerald/50 text-emerald font-semibold"
@@ -181,7 +194,7 @@ export function SolarHealthIndex({ state = "normal", onRetry }: SolarHealthIndex
             QUIET
           </button>
           <button
-            onClick={() => setIndexValue(42)}
+            onClick={() => setOverride(42)}
             className={`py-1 rounded border text-center transition-all ${
               indexValue > 30 && indexValue <= 50
                 ? "bg-cyan/20 border-cyan/50 text-cyan font-semibold"
@@ -191,7 +204,7 @@ export function SolarHealthIndex({ state = "normal", onRetry }: SolarHealthIndex
             WATCH
           </button>
           <button
-            onClick={() => setIndexValue(65)}
+            onClick={() => setOverride(65)}
             className={`py-1 rounded border text-center transition-all ${
               indexValue > 50 && indexValue <= 75
                 ? "bg-amber/20 border-amber/50 text-amber font-semibold"
@@ -201,7 +214,7 @@ export function SolarHealthIndex({ state = "normal", onRetry }: SolarHealthIndex
             WARN
           </button>
           <button
-            onClick={() => setIndexValue(88)}
+            onClick={() => setOverride(88)}
             className={`py-1 rounded border text-center transition-all ${
               indexValue > 75
                 ? "bg-red/20 border-red/50 text-red font-semibold"

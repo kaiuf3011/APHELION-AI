@@ -1,52 +1,10 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { Clock, CheckCircle, ShieldAlert, Sparkles, RefreshCw } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { ComponentState } from "./mission-status-card";
-
-interface TimelineBlock {
-  leadTime: string;
-  expectedClass: string;
-  probability: number;
-  confidence: number;
-  status: "nominal" | "watch" | "critical";
-  reason: string;
-}
-
-const blocks: TimelineBlock[] = [
-  {
-    leadTime: "5 min",
-    expectedClass: "M8.4",
-    probability: 89,
-    confidence: 94,
-    status: "critical",
-    reason: "Neupert lag peaking. SXR rise gradient is maximum."
-  },
-  {
-    leadTime: "10 min",
-    expectedClass: "M8.6",
-    probability: 84,
-    confidence: 89,
-    status: "critical",
-    reason: "Thermal build-up peaking. Reconnection active."
-  },
-  {
-    leadTime: "30 min",
-    expectedClass: "M5.2",
-    probability: 62,
-    confidence: 78,
-    status: "watch",
-    reason: "Gradual decay phase likely starting."
-  },
-  {
-    leadTime: "1 hour",
-    expectedClass: "C9.4",
-    probability: 45,
-    confidence: 65,
-    status: "nominal",
-    reason: "Magnetic fields returning to baseline."
-  }
-];
+import { fetchForecastTimeline } from "@/lib/api";
 
 interface PredictionTimelineProps {
   state?: ComponentState;
@@ -54,7 +12,16 @@ interface PredictionTimelineProps {
 }
 
 export function PredictionTimeline({ state = "normal", onRetry }: PredictionTimelineProps) {
-  if (state === "loading") {
+  const query = useQuery({
+    queryKey: ["forecast-timeline"],
+    queryFn: fetchForecastTimeline,
+    refetchInterval: 5000,
+  });
+
+  const effectiveState: ComponentState =
+    state !== "normal" ? state : query.isLoading ? "loading" : query.isError ? "error" : "normal";
+
+  if (effectiveState === "loading") {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 w-full h-full p-2">
         {Array.from({ length: 4 }).map((_, i) => (
@@ -68,7 +35,7 @@ export function PredictionTimeline({ state = "normal", onRetry }: PredictionTime
     );
   }
 
-  if (state === "empty") {
+  if (effectiveState === "empty") {
     return (
       <div className="flex flex-col items-center justify-center p-6 w-full h-full min-h-[120px] text-center">
         <Sparkles className="h-6 w-6 text-muted-foreground/30 mb-2" />
@@ -80,7 +47,7 @@ export function PredictionTimeline({ state = "normal", onRetry }: PredictionTime
     );
   }
 
-  if (state === "error") {
+  if (effectiveState === "error") {
     return (
       <div className="flex flex-col items-center justify-center p-6 w-full h-full min-h-[120px] text-center border border-red/20 rounded bg-red-950/5">
         <ShieldAlert className="h-6 w-6 text-red/60 mb-2 animate-bounce" />
@@ -89,8 +56,8 @@ export function PredictionTimeline({ state = "normal", onRetry }: PredictionTime
           ERR_TIMELINE_INFERENCE_TIMEOUT: Model prediction window timed out.
         </p>
         {onRetry && (
-          <button 
-            onClick={onRetry}
+          <button
+            onClick={() => { onRetry(); query.refetch(); }}
             className="mt-3 text-[10px] flex items-center gap-1 px-2.5 py-1 rounded bg-red/10 border border-red/30 text-red hover:bg-red/20 transition-all font-mono"
           >
             <RefreshCw className="h-2.5 w-2.5" /> Re-trigger Predictor
@@ -99,6 +66,8 @@ export function PredictionTimeline({ state = "normal", onRetry }: PredictionTime
       </div>
     );
   }
+
+  const blocks = query.data?.blocks ?? [];
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 w-full h-full p-1">

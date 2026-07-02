@@ -17,6 +17,32 @@ class DatasetDiscoverer:
             "hel1os": {"zips": [], "fits_found": [], "metadata": []}
         }
     
+    @staticmethod
+    def _observation_window(hdul):
+        """
+        Real AL1_SLX_L1_*.zip (SoLEXS) and HLS_*.zip (HEL1OS) products don't
+        follow one consistent convention for where the observation window
+        lives: SoLEXS puts standard OGIP DATE-OBS/DATE-END keys in the
+        table extension's header (not the primary HDU), while HEL1OS puts
+        ISOSTART/ISOSTOP in the primary header instead. Try each in turn
+        rather than assuming one location, which previously reported
+        "UNKNOWN" for every real file.
+        """
+        primary = hdul[0].header
+        ext1 = hdul[1].header if len(hdul) > 1 else {}
+
+        # .pi.gz spectral products carry none of the above, only a compact
+        # OBS_DATE="YYYYMMDD" (no time-of-day) in the primary header.
+        obs_date = primary.get("OBS_DATE")
+        obs_date_fallback = (
+            f"{obs_date[:4]}-{obs_date[4:6]}-{obs_date[6:8]} (date only, no DATE-OBS/ISOSTART in this file)"
+            if obs_date else "UNKNOWN"
+        )
+
+        date_obs = primary.get("DATE-OBS") or ext1.get("DATE-OBS") or primary.get("ISOSTART") or obs_date_fallback
+        date_end = primary.get("DATE-END") or ext1.get("DATE-END") or primary.get("ISOSTOP") or obs_date_fallback
+        return str(date_obs), str(date_end)
+
     def _scan_zip(self, zip_path: Path, source: str):
         logger.info(f"Scanning {zip_path.name}")
         self.summary[source]["zips"].append(zip_path.name)
@@ -37,12 +63,13 @@ class DatasetDiscoverer:
                     try:
                         with fits.open(extracted_path) as hdul:
                             header = hdul[0].header
+                            date_obs, date_end = self._observation_window(hdul)
                             meta = {
                                 "file": target_file,
                                 "telescop": header.get("TELESCOP", "UNKNOWN"),
                                 "instrume": header.get("INSTRUME", "UNKNOWN"),
-                                "date_obs": header.get("DATE-OBS", "UNKNOWN"),
-                                "date_end": header.get("DATE-END", "UNKNOWN"),
+                                "date_obs": date_obs,
+                                "date_end": date_end,
                                 "num_extensions": len(hdul)
                             }
                             self.summary[source]["metadata"].append(meta)

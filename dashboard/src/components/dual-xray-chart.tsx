@@ -1,81 +1,60 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid, Legend, Brush, ReferenceLine, ReferenceArea } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LineChart as ChartIcon, Zap, Play, Pause, RefreshCw, Eye } from "lucide-react";
 import { ComponentState } from "./mission-status-card";
+import { fetchTelemetryLive, fetchHistorySimilar } from "@/lib/api";
 
 interface DualXrayChartProps {
   state?: ComponentState;
   onRetry?: () => void;
 }
 
-// Pre-baked historical event data (SOL2023-11-28 M8.4 flare)
-const historicalData = Array.from({ length: 60 }).map((_, i) => {
-  const time = `${String(Math.floor(i / 60)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}`;
-  // Soft X-ray (SoLEXS, 1-8 Angstrom) peak at index 35
-  const soft = Math.pow(10, -8 + Math.exp(-Math.pow(i - 35, 2) / 120) * 4) + Math.random() * 1e-9;
-  // Hard X-ray (HEL1OS, 0.5-4 Angstrom) peaks earlier at index 30 (Neupert effect)
-  const hard = Math.pow(10, -9 + Math.exp(-Math.pow(i - 30, 2) / 80) * 4.2) + Math.random() * 1e-10;
-  return { time, soft, hard };
-});
+interface ChartPoint {
+  time: string;
+  soft: number;
+  hard: number;
+}
+
+// Rescale a 0-1 normalized similarity curve into the chart's log-scale W/m^2 domain
+function curveToFlux(curve: number[], peakExp = -4): ChartPoint[] {
+  return curve.map((v, i) => {
+    const clamped = Math.max(0, Math.min(1, v));
+    // Map normalized [0,1] onto a log range from 1e-8 up to 10^peakExp
+    const exp = -8 + clamped * (peakExp - -8);
+    return {
+      time: `${String(Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}`,
+      soft: Math.pow(10, exp),
+      hard: Math.pow(10, exp - 1),
+    };
+  });
+}
 
 export function DualXrayChart({ state = "normal", onRetry }: DualXrayChartProps) {
   const [chartMode, setChartMode] = useState<"live" | "historical">("historical");
-  const [liveData, setLiveData] = useState<any[]>([]);
   const [isLivePlaying, setIsLivePlaying] = useState(true);
-  const liveIndexRef = useRef(0);
 
-  // Initialize live data stream
-  useEffect(() => {
-    if (chartMode !== "live") return;
-    
-    // Generate initial 30 points
-    const initialPoints = Array.from({ length: 30 }).map((_, i) => {
-      const idx = i;
-      const soft = Math.pow(10, -8 + Math.exp(-Math.pow(idx - 20, 2) / 100) * 2) + Math.random() * 1e-9;
-      const hard = Math.pow(10, -9 + Math.exp(-Math.pow(idx - 16, 2) / 80) * 2) + Math.random() * 1e-10;
-      return {
-        time: `${String(Math.floor(idx / 60)).padStart(2, '0')}:${String(idx % 60).padStart(2, '0')}`,
-        soft,
-        hard
-      };
-    });
-    setLiveData(initialPoints);
-    liveIndexRef.current = 30;
-  }, [chartMode]);
+  const liveQuery = useQuery({
+    queryKey: ["telemetry-live"],
+    queryFn: () => fetchTelemetryLive(60),
+    refetchInterval: chartMode === "live" && isLivePlaying ? 3000 : false,
+  });
 
-  // Handle live updates
-  useEffect(() => {
-    if (chartMode !== "live" || !isLivePlaying) return;
+  const historyQuery = useQuery({
+    queryKey: ["history-similar"],
+    queryFn: fetchHistorySimilar,
+    refetchInterval: chartMode === "historical" ? 5000 : false,
+  });
 
-    const interval = setInterval(() => {
-      setLiveData((prev) => {
-        const nextIdx = liveIndexRef.current;
-        // Let's create an ongoing dynamic wave
-        const soft = Math.pow(10, -7.5 + Math.sin(nextIdx * 0.08) * 2.5) + Math.random() * 1e-9;
-        const hard = Math.pow(10, -8.5 + Math.sin(nextIdx * 0.08 - 0.5) * 2.2) + Math.random() * 1e-10;
-        
-        const newPoint = {
-          time: `${String(Math.floor(nextIdx / 60) % 24).padStart(2, '0')}:${String(nextIdx % 60).padStart(2, '0')}`,
-          soft,
-          hard
-        };
-        
-        liveIndexRef.current = nextIdx + 1;
-        // Keep a sliding window of 60 points
-        if (prev.length >= 60) {
-          return [...prev.slice(1), newPoint];
-        }
-        return [...prev, newPoint];
-      });
-    }, 1000);
+  const activeQuery = chartMode === "live" ? liveQuery : historyQuery;
 
-    return () => clearInterval(interval);
-  }, [chartMode, isLivePlaying]);
+  const effectiveState: ComponentState =
+    state !== "normal" ? state : activeQuery.isLoading ? "loading" : activeQuery.isError ? "error" : "normal";
 
-  if (state === "loading") {
+  if (effectiveState === "loading") {
     return (
       <div className="w-full h-full flex flex-col justify-between p-4 min-h-[300px]">
         <div className="flex justify-between items-center mb-4">
@@ -89,7 +68,7 @@ export function DualXrayChart({ state = "normal", onRetry }: DualXrayChartProps)
     );
   }
 
-  if (state === "empty") {
+  if (effectiveState === "empty") {
     return (
       <div className="w-full h-full flex flex-col items-center justify-center p-8 min-h-[300px] text-center border border-dashed border-border/40 rounded-lg">
         <ChartIcon className="h-10 w-10 text-muted-foreground/30 mb-2 animate-bounce" />
@@ -101,7 +80,7 @@ export function DualXrayChart({ state = "normal", onRetry }: DualXrayChartProps)
     );
   }
 
-  if (state === "error") {
+  if (effectiveState === "error") {
     return (
       <div className="w-full h-full flex flex-col items-center justify-center p-8 min-h-[300px] text-center border border-red/20 rounded-lg bg-red-950/5">
         <Zap className="h-10 w-10 text-red/60 mb-2 animate-pulse" />
@@ -110,8 +89,8 @@ export function DualXrayChart({ state = "normal", onRetry }: DualXrayChartProps)
           ERR_CHART_DECOMPRESSION_FAILED: Packet frame check error on HEL1OS channel B.
         </p>
         {onRetry && (
-          <button 
-            onClick={onRetry}
+          <button
+            onClick={() => { onRetry(); activeQuery.refetch(); }}
             className="mt-4 text-xs flex items-center gap-1.5 px-3 py-1.5 rounded bg-red/10 border border-red/30 text-red hover:bg-red/20 transition-all"
           >
             <RefreshCw className="h-3 w-3" /> Retry Sync
@@ -121,7 +100,12 @@ export function DualXrayChart({ state = "normal", onRetry }: DualXrayChartProps)
     );
   }
 
-  const chartData = chartMode === "live" ? liveData : historicalData;
+  const chartData: ChartPoint[] =
+    chartMode === "live"
+      ? (liveQuery.data?.points ?? []).map((p) => ({ time: p.time, soft: p.soft, hard: p.hard }))
+      : historyQuery.data
+      ? curveToFlux(historyQuery.data.match.curve)
+      : [];
 
   return (
     <div className="w-full h-full flex flex-col justify-between min-h-[340px] p-1">
@@ -143,7 +127,7 @@ export function DualXrayChart({ state = "normal", onRetry }: DualXrayChartProps)
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              <Eye className="h-2.5 w-2.5" /> SOL2023-11-28
+              <Eye className="h-2.5 w-2.5" /> Closest Match
             </button>
             <button
               onClick={() => setChartMode("live")}

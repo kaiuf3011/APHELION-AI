@@ -144,7 +144,7 @@ export default function LandingPage() {
             <Zap className="h-6 w-6 text-amber mx-auto mb-2" />
             <h4 className="font-semibold text-foreground text-sm uppercase">Physics-Informed ML</h4>
             <p className="text-muted-foreground leading-relaxed font-sans text-[11px] pt-1">
-              Injects magnetohydrodynamic constraints directly into loss functions, guaranteeing physically plausible forecasts.
+              Derives Neupert-effect, decay-time, and lag features directly from telemetry before classification, instead of feeding raw flux into a black box.
             </p>
           </div>
           <div className="space-y-2 border border-border/30 p-5 rounded-lg bg-zinc-900/10 hover:border-border/60 transition-all hover:scale-[1.02]">

@@ -1,16 +1,42 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { Check, ShieldAlert, Sparkles, RefreshCw, Layers } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ComponentState } from "./mission-status-card";
+import { fetchHistorySimilar } from "@/lib/api";
 
 interface HistoricalSimilarityCardProps {
   state?: ComponentState;
   onRetry?: () => void;
 }
 
+// Converts a 0-1 normalized curve into an SVG path matching the card's mini-graph viewBox (~260x50)
+function curveToPath(curve: number[], width = 260, height = 50): string {
+  if (!curve || curve.length < 2) return `M 10 ${height / 2} L ${width - 10} ${height / 2}`;
+  const usableWidth = width - 20;
+  const step = usableWidth / (curve.length - 1);
+  return curve
+    .map((v, i) => {
+      const clamped = Math.max(0, Math.min(1, v));
+      const x = 10 + i * step;
+      const y = height - 5 - clamped * (height - 10);
+      return `${i === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
+    })
+    .join(" ");
+}
+
 export function HistoricalSimilarityCard({ state = "normal", onRetry }: HistoricalSimilarityCardProps) {
-  if (state === "loading") {
+  const query = useQuery({
+    queryKey: ["history-similar"],
+    queryFn: fetchHistorySimilar,
+    refetchInterval: 5000,
+  });
+
+  const effectiveState: ComponentState =
+    state !== "normal" ? state : query.isLoading ? "loading" : query.isError ? "error" : "normal";
+
+  if (effectiveState === "loading") {
     return (
       <Card className="border-border/40 bg-card/50 backdrop-blur-sm h-full flex flex-col justify-between">
         <CardHeader className="pb-2">
@@ -27,7 +53,7 @@ export function HistoricalSimilarityCard({ state = "normal", onRetry }: Historic
     );
   }
 
-  if (state === "empty") {
+  if (effectiveState === "empty") {
     return (
       <Card className="border-border/40 bg-card/50 backdrop-blur-sm h-full flex flex-col justify-center items-center p-6 text-center">
         <Layers className="h-8 w-8 text-muted-foreground/30 mb-2 animate-pulse" />
@@ -39,7 +65,7 @@ export function HistoricalSimilarityCard({ state = "normal", onRetry }: Historic
     );
   }
 
-  if (state === "error") {
+  if (effectiveState === "error") {
     return (
       <Card className="border-red/40 bg-red-950/10 backdrop-blur-sm h-full flex flex-col justify-center p-6 border">
         <div className="flex items-start gap-3">
@@ -50,8 +76,8 @@ export function HistoricalSimilarityCard({ state = "normal", onRetry }: Historic
               ERR_DB_QUERY_TIMEOUT: Connection timeout while querying historical database index.
             </p>
             {onRetry && (
-              <button 
-                onClick={onRetry}
+              <button
+                onClick={() => { onRetry(); query.refetch(); }}
                 className="mt-3 text-xs flex items-center gap-1.5 px-2.5 py-1 rounded bg-red/20 hover:bg-red/35 text-red transition-all border border-red/30"
               >
                 <RefreshCw className="h-3 w-3" /> Retry Query
@@ -63,6 +89,10 @@ export function HistoricalSimilarityCard({ state = "normal", onRetry }: Historic
     );
   }
 
+  const data = query.data;
+  const current = data?.current;
+  const match = data?.match;
+
   return (
     <Card className="border-border/40 bg-card/50 backdrop-blur-sm h-full flex flex-col justify-between hover:border-border/80 transition-colors">
       <CardHeader className="pb-2">
@@ -72,7 +102,7 @@ export function HistoricalSimilarityCard({ state = "normal", onRetry }: Historic
             Historical Similarity
           </CardTitle>
           <div className="bg-cyan/15 border border-cyan/35 text-cyan text-[10px] font-mono px-2 py-0.5 rounded font-bold">
-            98.4% MATCH
+            {(data?.similarity_pct ?? 0).toFixed(1)}% MATCH
           </div>
         </div>
       </CardHeader>
@@ -81,13 +111,13 @@ export function HistoricalSimilarityCard({ state = "normal", onRetry }: Historic
         <div className="grid grid-cols-2 gap-3 pb-3 border-b border-border/20 font-mono">
           <div>
             <span className="text-[10px] text-muted-foreground block uppercase">Current Event</span>
-            <span className="text-sm font-bold text-foreground">SOL2026-AR136</span>
-            <span className="text-[10px] text-amber block mt-0.5">Class M8.4 (Active)</span>
+            <span className="text-sm font-bold text-foreground">{current?.id ?? "--"}</span>
+            <span className="text-[10px] text-amber block mt-0.5">Class {current?.goes_class ?? "--"} (Active)</span>
           </div>
           <div>
             <span className="text-[10px] text-muted-foreground block uppercase">Archive Match</span>
-            <span className="text-sm font-bold text-foreground">SOL2003-10-28</span>
-            <span className="text-[10px] text-red block mt-0.5">Class X17.2 (Halloween)</span>
+            <span className="text-sm font-bold text-foreground">{match?.id ?? "--"}</span>
+            <span className="text-[10px] text-red block mt-0.5">Class {match?.goes_class ?? "--"}</span>
           </div>
         </div>
 
@@ -96,18 +126,18 @@ export function HistoricalSimilarityCard({ state = "normal", onRetry }: Historic
           <span className="uppercase text-[9px] text-muted-foreground font-semibold">Parameter Comparison</span>
           <div className="grid grid-cols-3 gap-1 py-1 border-b border-border/10">
             <span className="text-muted-foreground">Peak Flux</span>
-            <span className="text-foreground text-center">8.4e-5 W/m²</span>
-            <span className="text-muted-foreground text-right">1.7e-4 W/m²</span>
+            <span className="text-foreground text-center">{current?.peak_flux ?? "--"}</span>
+            <span className="text-muted-foreground text-right">{match?.peak_flux ?? "--"}</span>
           </div>
           <div className="grid grid-cols-3 gap-1 py-1 border-b border-border/10">
             <span className="text-muted-foreground">Rise Duration</span>
-            <span className="text-foreground text-center">14m 30s</span>
-            <span className="text-muted-foreground text-right">16m 12s</span>
+            <span className="text-foreground text-center">{current?.rise_duration ?? "--"}</span>
+            <span className="text-muted-foreground text-right">{match?.rise_duration ?? "--"}</span>
           </div>
           <div className="grid grid-cols-3 gap-1 py-1">
             <span className="text-muted-foreground">Lag Phase</span>
-            <span className="text-foreground text-center">2.4s</span>
-            <span className="text-muted-foreground text-right">2.8s</span>
+            <span className="text-foreground text-center">{current?.lag ?? "--"}</span>
+            <span className="text-muted-foreground text-right">{match?.lag ?? "--"}</span>
           </div>
         </div>
 
@@ -121,10 +151,10 @@ export function HistoricalSimilarityCard({ state = "normal", onRetry }: Historic
             </div>
           </div>
           <div className="h-14 bg-muted/15 border border-border/20 rounded p-1 flex items-center justify-center relative">
-            <svg className="w-full h-full">
+            <svg className="w-full h-full" viewBox="0 0 260 50" preserveAspectRatio="none">
               {/* Historical Match curve (Dashed Grey line) */}
               <path
-                d="M 10 45 Q 35 48 55 25 T 95 5 T 135 15 T 180 35 T 220 40 T 260 45"
+                d={curveToPath(match?.curve ?? [])}
                 fill="none"
                 stroke="rgba(113, 113, 122, 0.5)"
                 strokeWidth={1.5}
@@ -132,7 +162,7 @@ export function HistoricalSimilarityCard({ state = "normal", onRetry }: Historic
               />
               {/* Current Active curve (Solid Blue line) */}
               <path
-                d="M 10 45 Q 35 48 55 28 T 95 10 T 135 18 T 180 38"
+                d={curveToPath(current?.curve ?? [])}
                 fill="none"
                 stroke="var(--color-electric-blue)"
                 strokeWidth={2}
@@ -140,6 +170,9 @@ export function HistoricalSimilarityCard({ state = "normal", onRetry }: Historic
               />
             </svg>
           </div>
+          {data?.data_source && (
+            <p className="text-[9px] text-muted-foreground/60 font-mono text-right">{data.data_source}</p>
+          )}
         </div>
       </CardContent>
     </Card>
