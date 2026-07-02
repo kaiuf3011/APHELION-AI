@@ -1,94 +1,51 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Radio, WifiOff, Terminal, Play, Pause, ShieldAlert, Sparkles, RefreshCw, PlusCircle } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ComponentState } from "./mission-status-card";
+import { fetchTelemetryPackets, TelemetryPacket as ApiTelemetryPacket } from "@/lib/api";
 
-interface TelemetryPacket {
-  id: string;
-  time: string;
-  payload: "SoLEXS" | "HEL1OS" | "ASPEX" | "PAPA" | "SYS";
-  parameter: string;
-  value: string;
-  status: "nominal" | "warning" | "critical";
+interface TelemetryPacket extends ApiTelemetryPacket {
   flash?: boolean;
 }
 
-const mockParams = [
-  { payload: "SoLEXS", parameter: "SXR_Flux_1_8A", getValue: () => (Math.random() * 8.5e-6).toExponential(3) + " W/m²", getStatus: (val: string) => parseFloat(val) > 7.5e-6 ? "critical" : parseFloat(val) > 4.5e-6 ? "warning" : "nominal" },
-  { payload: "HEL1OS", parameter: "HXR_Counts_10_25", getValue: () => Math.floor(Math.random() * 4500) + " cps", getStatus: (val: string) => parseInt(val) > 3500 ? "critical" : parseInt(val) > 2000 ? "warning" : "nominal" },
-  { payload: "SoLEXS", parameter: "Det_Temp_A", getValue: () => (-20 + Math.random() * 4).toFixed(2) + " °C", getStatus: () => "nominal" },
-  { payload: "HEL1OS", parameter: "HV_Supply_Status", getValue: () => (1800 + Math.random() * 5).toFixed(1) + " V", getStatus: () => "nominal" },
-  { payload: "ASPEX", parameter: "Proton_Density", getValue: () => (Math.random() * 12).toFixed(1) + " p/cm³", getStatus: () => "nominal" },
-  { payload: "PAPA", parameter: "Electron_Temp", getValue: () => (100000 + Math.random() * 5000).toFixed(0) + " K", getStatus: () => "nominal" },
-  { payload: "SYS", parameter: "Ground_Link_Margin", getValue: () => (95 + Math.random() * 5).toFixed(1) + " dBHz", getStatus: (val: string) => parseFloat(val) < 96.0 ? "warning" : "nominal" }
-] as const;
-
 export function LiveTelemetryPanel({ state = "normal", onRetry }: { state?: ComponentState; onRetry?: () => void }) {
-  const [packets, setPackets] = useState<TelemetryPacket[]>([]);
   const [isPlaying, setIsPlaying] = useState(true);
   const [autoScroll, setAutoScroll] = useState(true);
+  const [injectedPackets, setInjectedPackets] = useState<TelemetryPacket[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const packetIdRef = useRef(0);
+  const prevIdsRef = useRef<Set<string>>(new Set());
 
-  // Generate initial packets
+  const query = useQuery({
+    queryKey: ["telemetry-packets"],
+    queryFn: () => fetchTelemetryPackets(30),
+    refetchInterval: isPlaying ? 2500 : false,
+  });
+
+  const [packets, setPackets] = useState<TelemetryPacket[]>([]);
+
+  // Merge fetched packets, flashing any newly-seen ids, and append injected packets
   useEffect(() => {
-    if (state !== "normal") return;
+    const fetched = query.data?.packets ?? [];
+    const prevIds = prevIdsRef.current;
+    const merged: TelemetryPacket[] = fetched.map((p) => ({ ...p, flash: !prevIds.has(p.id) }));
+    prevIdsRef.current = new Set(fetched.map((p) => p.id));
+    setPackets([...merged, ...injectedPackets]);
 
-    const initialPackets = Array.from({ length: 15 }).map((_, i) => {
-      const param = mockParams[i % mockParams.length];
-      const val = param.getValue();
-      const st = param.getStatus(val) as "nominal" | "warning" | "critical";
-      const timeStr = new Date(Date.now() - (15 - i) * 2000).toISOString().substring(11, 19);
+    const newIds = merged.filter((p) => p.flash).map((p) => p.id);
+    if (newIds.length > 0) {
+      const timeout = setTimeout(() => {
+        setPackets((current) => current.map((p) => (newIds.includes(p.id) ? { ...p, flash: false } : p)));
+      }, 1000);
+      return () => clearTimeout(timeout);
+    }
+  }, [query.data, injectedPackets]);
 
-      return {
-        id: `pkt-${packetIdRef.current++}`,
-        time: timeStr,
-        payload: param.payload,
-        parameter: param.parameter,
-        value: val,
-        status: st
-      };
-    });
-    setPackets(initialPackets);
-  }, [state]);
-
-  // Handle packet streaming
-  useEffect(() => {
-    if (state !== "normal" || !isPlaying) return;
-
-    const interval = setInterval(() => {
-      const param = mockParams[Math.floor(Math.random() * mockParams.length)];
-      const val = param.getValue();
-      const st = param.getStatus(val) as "nominal" | "warning" | "critical";
-      const timeStr = new Date().toISOString().substring(11, 19);
-
-      const newPacket: TelemetryPacket = {
-        id: `pkt-${packetIdRef.current++}`,
-        time: timeStr,
-        payload: param.payload,
-        parameter: param.parameter,
-        value: val,
-        status: st,
-        flash: true
-      };
-
-      setPackets(prev => {
-        // Keep a max list of 100 packets
-        const updated = prev.length >= 100 ? [...prev.slice(1), newPacket] : [...prev, newPacket];
-        
-        // Remove flash tag after 1s
-        setTimeout(() => {
-          setPackets(current => current.map(p => p.id === newPacket.id ? { ...p, flash: false } : p));
-        }, 1000);
-
-        return updated;
-      });
-    }, 1500);
-
-    return () => clearInterval(interval);
-  }, [state, isPlaying]);
+  const effectiveState: ComponentState =
+    state !== "normal" ? state : query.isLoading ? "loading" : query.isError ? "error" : "normal";
 
   // Handle Autoscroll
   useEffect(() => {
@@ -100,7 +57,7 @@ export function LiveTelemetryPanel({ state = "normal", onRetry }: { state?: Comp
     }
   }, [packets, autoScroll]);
 
-  // Injects custom anomaly packet
+  // Injects custom anomaly packet (client-only demo action)
   const injectAnomaly = () => {
     const timeStr = new Date().toISOString().substring(11, 19);
     const newAnomaly: TelemetryPacket = {
@@ -112,10 +69,11 @@ export function LiveTelemetryPanel({ state = "normal", onRetry }: { state?: Comp
       status: "critical",
       flash: true
     };
+    setInjectedPackets(prev => [...prev, newAnomaly]);
     setPackets(prev => [...prev, newAnomaly]);
   };
 
-  if (state === "loading") {
+  if (effectiveState === "loading") {
     return (
       <div className="w-full min-h-[220px] flex flex-col justify-between p-4 animate-pulse">
         <div className="h-6 w-1/3 bg-muted/40 rounded mb-4" />
@@ -126,7 +84,7 @@ export function LiveTelemetryPanel({ state = "normal", onRetry }: { state?: Comp
     );
   }
 
-  if (state === "empty") {
+  if (effectiveState === "empty") {
     return (
       <div className="w-full min-h-[220px] flex flex-col items-center justify-center p-8 text-center border border-dashed border-border/40 rounded-lg">
         <WifiOff className="h-10 w-10 text-muted-foreground/30 mb-2 animate-pulse" />
@@ -138,7 +96,7 @@ export function LiveTelemetryPanel({ state = "normal", onRetry }: { state?: Comp
     );
   }
 
-  if (state === "error") {
+  if (effectiveState === "error") {
     return (
       <div className="w-full min-h-[220px] flex flex-col items-center justify-center p-8 text-center border border-red/20 rounded-lg bg-red-950/5">
         <ShieldAlert className="h-10 w-10 text-red/60 mb-2 animate-bounce" />
@@ -147,8 +105,8 @@ export function LiveTelemetryPanel({ state = "normal", onRetry }: { state?: Comp
           ERR_DEMUX_FRAME_SYNC: Telemetry frames corrupted. Subcarrier phase offset too large.
         </p>
         {onRetry && (
-          <button 
-            onClick={onRetry}
+          <button
+            onClick={() => { onRetry(); query.refetch(); }}
             className="mt-4 text-xs flex items-center gap-1.5 px-3 py-1.5 rounded bg-red/10 border border-red/30 text-red hover:bg-red/20 transition-all font-mono"
           >
             <RefreshCw className="h-3 w-3" /> Demux Force Reset

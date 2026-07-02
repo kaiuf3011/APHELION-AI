@@ -1,9 +1,11 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { Sparkles, Brain, CheckCircle2, AlertTriangle, AlertCircle, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { ComponentState } from "./mission-status-card";
+import { fetchExplain } from "@/lib/api";
 
 interface ExplainableAICardProps {
   state?: ComponentState;
@@ -11,7 +13,16 @@ interface ExplainableAICardProps {
 }
 
 export function ExplainableAICard({ state = "normal", onRetry }: ExplainableAICardProps) {
-  if (state === "loading") {
+  const query = useQuery({
+    queryKey: ["explain"],
+    queryFn: fetchExplain,
+    refetchInterval: 5000,
+  });
+
+  const effectiveState: ComponentState =
+    state !== "normal" ? state : query.isLoading ? "loading" : query.isError ? "error" : "normal";
+
+  if (effectiveState === "loading") {
     return (
       <Card className="border-border/40 bg-card/50 backdrop-blur-sm h-full flex flex-col justify-between">
         <CardHeader className="pb-2">
@@ -31,7 +42,7 @@ export function ExplainableAICard({ state = "normal", onRetry }: ExplainableAICa
     );
   }
 
-  if (state === "empty") {
+  if (effectiveState === "empty") {
     return (
       <Card className="border-border/40 bg-card/50 backdrop-blur-sm h-full flex flex-col justify-center items-center p-6 text-center">
         <Brain className="h-8 w-8 text-muted-foreground/40 mb-2" />
@@ -43,7 +54,7 @@ export function ExplainableAICard({ state = "normal", onRetry }: ExplainableAICa
     );
   }
 
-  if (state === "error") {
+  if (effectiveState === "error") {
     return (
       <Card className="border-red/40 bg-red-950/10 backdrop-blur-sm h-full flex flex-col justify-center p-6 border">
         <div className="flex items-start gap-3">
@@ -54,8 +65,8 @@ export function ExplainableAICard({ state = "normal", onRetry }: ExplainableAICa
               ERR_XAI_VALIDATION: Core physics constraints violated (MHD flux divergence limit exceeded).
             </p>
             {onRetry && (
-              <button 
-                onClick={onRetry}
+              <button
+                onClick={() => { onRetry(); query.refetch(); }}
                 className="mt-3 text-xs flex items-center gap-1.5 px-2.5 py-1 rounded bg-red/20 hover:bg-red/35 text-red transition-all border border-red/30"
               >
                 <RefreshCw className="h-3 w-3" /> Re-initialize Weights
@@ -67,6 +78,12 @@ export function ExplainableAICard({ state = "normal", onRetry }: ExplainableAICa
     );
   }
 
+  const data = query.data;
+  const topAttribution = (data?.attribution ?? [])
+    .slice()
+    .sort((a, b) => b.contribution_pct - a.contribution_pct)
+    .slice(0, 4);
+
   return (
     <Card className="border-border/40 bg-card/50 backdrop-blur-sm h-full flex flex-col justify-between hover:border-border/80 transition-colors">
       <CardHeader className="pb-2">
@@ -76,7 +93,7 @@ export function ExplainableAICard({ state = "normal", onRetry }: ExplainableAICa
             Explainable AI (XAI)
           </CardTitle>
           <div className="flex items-center gap-1 text-[10px] text-emerald font-mono">
-            <CheckCircle2 className="h-3 w-3" /> PINN VALIDATED
+            <CheckCircle2 className="h-3 w-3" /> SHAP VALIDATED
           </div>
         </div>
       </CardHeader>
@@ -84,13 +101,13 @@ export function ExplainableAICard({ state = "normal", onRetry }: ExplainableAICa
         {/* Prediction Header */}
         <div className="bg-muted/15 p-2.5 rounded border border-border/10">
           <div className="flex justify-between items-center mb-1">
-            <span className="font-semibold text-foreground">Forecast: M8.4 Flare Imminent</span>
+            <span className="font-semibold text-foreground">{data?.headline ?? "Forecast unavailable"}</span>
             <span className="font-mono font-bold text-amber bg-amber/10 px-1.5 py-0.5 rounded text-[10px]">
-              89.4% CONFIDENCE
+              {(data?.confidence ?? 0).toFixed(1)}% CONFIDENCE
             </span>
           </div>
           <p className="text-[10px] text-muted-foreground leading-normal">
-            Neural network models detect pre-flare thermal accumulation patterns. Estimated lead time: 14 mins.
+            Predicted class {data?.predicted_class ?? "--"}. Estimated lead time: {data?.lead_time_minutes ?? "--"} mins.
           </p>
         </div>
 
@@ -100,27 +117,15 @@ export function ExplainableAICard({ state = "normal", onRetry }: ExplainableAICa
             Signal Attribution Weights
           </span>
           <div className="space-y-1.5 font-mono">
-            <div>
-              <div className="flex justify-between text-[10px] mb-0.5">
-                <span className="text-muted-foreground">Magnetic Shear Index</span>
-                <span className="text-foreground">42%</span>
+            {topAttribution.map((attr) => (
+              <div key={attr.label}>
+                <div className="flex justify-between text-[10px] mb-0.5">
+                  <span className="text-muted-foreground">{attr.label}</span>
+                  <span className="text-foreground">{attr.contribution_pct.toFixed(0)}%</span>
+                </div>
+                <Progress value={attr.contribution_pct} className="h-1 bg-muted/40" />
               </div>
-              <Progress value={42} className="h-1 bg-muted/40" />
-            </div>
-            <div>
-              <div className="flex justify-between text-[10px] mb-0.5">
-                <span className="text-muted-foreground">SoLEXS X-Ray Flux Gradient</span>
-                <span className="text-foreground">29%</span>
-              </div>
-              <Progress value={29} className="h-1 bg-muted/40" />
-            </div>
-            <div>
-              <div className="flex justify-between text-[10px] mb-0.5">
-                <span className="text-muted-foreground">HEL1OS Reconnection Peak</span>
-                <span className="text-foreground">18%</span>
-              </div>
-              <Progress value={18} className="h-1 bg-muted/40" />
-            </div>
+            ))}
           </div>
         </div>
 
@@ -130,8 +135,7 @@ export function ExplainableAICard({ state = "normal", onRetry }: ExplainableAICa
             Physics reasoning
           </span>
           <p className="text-muted-foreground leading-relaxed text-[11px]">
-            Model weights align with the <span className="text-foreground font-medium">Neupert Effect</span>: 
-            the integrated Hard X-ray pulse (18%) maps directly to the onset slope of Soft X-ray emissions (29%), confirming chromospheric evaporation is underway.
+            {data?.reasoning ?? "--"}
           </p>
         </div>
 
@@ -139,11 +143,11 @@ export function ExplainableAICard({ state = "normal", onRetry }: ExplainableAICa
         <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border/20 text-[10px] font-mono text-muted-foreground">
           <div>
             <span>Model: </span>
-            <span className="text-foreground">SolarNet-v4.2</span>
+            <span className="text-foreground">{data?.model_name ?? "--"}</span>
           </div>
-          <div>
-            <span>MHD constraint: </span>
-            <span className="text-emerald">Passed</span>
+          <div className="col-span-2">
+            <span>Explainability: </span>
+            <span className="text-foreground">{data?.explainability_method ?? "--"}</span>
           </div>
         </div>
       </CardContent>

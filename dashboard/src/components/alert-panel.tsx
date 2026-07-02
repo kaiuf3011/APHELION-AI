@@ -1,59 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertCircle, AlertTriangle, Info, Bell, Check, ShieldAlert, Sparkles, RefreshCw } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ComponentState } from "./mission-status-card";
-
-interface Alert {
-  id: string;
-  title: string;
-  source: string;
-  severity: "critical" | "high" | "medium" | "low";
-  timestamp: string;
-  description: string;
-  acknowledged: boolean;
-}
-
-const initialAlerts: Alert[] = [
-  {
-    id: "alt-001",
-    title: "Critical X-Ray Flux Threshold Crossed",
-    source: "SoLEXS Instrument",
-    severity: "critical",
-    timestamp: "2 mins ago",
-    description: "Soft X-ray flux gradient exceeded 1e-4 W/m²/s on Channel A.",
-    acknowledged: false
-  },
-  {
-    id: "alt-002",
-    title: "Impulsive Peak Imminent",
-    source: "HEL1OS Instrument",
-    severity: "high",
-    timestamp: "8 mins ago",
-    description: "Hard X-ray counts reached 4,200 cps in the 10-25 keV band.",
-    acknowledged: false
-  },
-  {
-    id: "alt-003",
-    title: "Active Region AR13654 Shear Increment",
-    source: "Physics Engine",
-    severity: "medium",
-    timestamp: "22 mins ago",
-    description: "Magnetogram analysis indicates magnetic shear increased by 14% over 2 hours.",
-    acknowledged: false
-  },
-  {
-    id: "alt-004",
-    title: "DSN Link Signal Drift Detected",
-    source: "Ground Operations",
-    severity: "low",
-    timestamp: "1 hr ago",
-    description: "ISRO IDSN telemetry downlink packet drop rate rose to 0.45%.",
-    acknowledged: false
-  }
-];
+import { fetchAlerts } from "@/lib/api";
 
 interface AlertPanelProps {
   state?: ComponentState;
@@ -61,20 +14,31 @@ interface AlertPanelProps {
 }
 
 export function AlertPanel({ state = "normal", onRetry }: AlertPanelProps) {
-  const [alerts, setAlerts] = useState<Alert[]>(initialAlerts);
+  const query = useQuery({
+    queryKey: ["alerts"],
+    queryFn: fetchAlerts,
+    refetchInterval: 5000,
+  });
+
+  const [acknowledgedIds, setAcknowledgedIds] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<"all" | "critical" | "high" | "medium" | "low">("all");
 
   const acknowledgeAlert = (id: string) => {
-    setAlerts(prev => prev.map(a => a.id === id ? { ...a, acknowledged: true } : a));
+    setAcknowledgedIds(prev => new Set(prev).add(id));
   };
 
+  const effectiveState: ComponentState =
+    state !== "normal" ? state : query.isLoading ? "loading" : query.isError ? "error" : "normal";
+
+  const alerts = query.data?.alerts ?? [];
+
   const activeAlerts = alerts.filter(a => {
-    if (a.acknowledged) return false;
+    if (a.acknowledged || acknowledgedIds.has(a.id)) return false;
     if (filter === "all") return true;
     return a.severity === filter;
   });
 
-  if (state === "loading") {
+  if (effectiveState === "loading") {
     return (
       <div className="space-y-3 w-full p-1 animate-pulse">
         <div className="flex gap-1 h-6 w-3/4 bg-muted/40 rounded" />
@@ -88,7 +52,7 @@ export function AlertPanel({ state = "normal", onRetry }: AlertPanelProps) {
     );
   }
 
-  if (state === "empty" || activeAlerts.length === 0) {
+  if (effectiveState === "empty" || activeAlerts.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center p-6 w-full h-full min-h-[220px] text-center bg-emerald-950/5 border border-emerald-900/10 rounded-lg">
         <div className="p-3 bg-emerald/10 text-emerald rounded-full mb-3 animate-pulse">
@@ -102,7 +66,7 @@ export function AlertPanel({ state = "normal", onRetry }: AlertPanelProps) {
     );
   }
 
-  if (state === "error") {
+  if (effectiveState === "error") {
     return (
       <div className="flex flex-col items-center justify-center p-6 w-full h-full min-h-[220px] text-center border border-red/20 rounded bg-red-950/5">
         <ShieldAlert className="h-8 w-8 text-red/60 mb-2 animate-bounce" />
@@ -111,8 +75,8 @@ export function AlertPanel({ state = "normal", onRetry }: AlertPanelProps) {
           ERR_ALERT_PIPELINE: Unable to fetch alert configuration schemas.
         </p>
         {onRetry && (
-          <button 
-            onClick={onRetry}
+          <button
+            onClick={() => { onRetry(); query.refetch(); }}
             className="mt-3 text-[10px] flex items-center gap-1 px-2.5 py-1 rounded bg-red/10 border border-red/30 text-red hover:bg-red/20 transition-all font-mono"
           >
             <RefreshCw className="h-2.5 w-2.5" /> Re-register Pipeline

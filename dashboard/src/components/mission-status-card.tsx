@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Activity, Radio, Wifi, ShieldAlert, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { fetchMissionStatus } from "@/lib/api";
 
 export type ComponentState = "normal" | "loading" | "empty" | "error";
 
@@ -15,6 +17,12 @@ interface MissionStatusCardProps {
 export function MissionStatusCard({ state = "normal", onRetry }: MissionStatusCardProps) {
   const [time, setTime] = useState("");
 
+  const query = useQuery({
+    queryKey: ["mission-status"],
+    queryFn: fetchMissionStatus,
+    refetchInterval: 4000,
+  });
+
   useEffect(() => {
     const updateTime = () => {
       setTime(new Date().toISOString().replace("T", " ").substring(0, 19) + " UTC");
@@ -24,7 +32,10 @@ export function MissionStatusCard({ state = "normal", onRetry }: MissionStatusCa
     return () => clearInterval(interval);
   }, []);
 
-  if (state === "loading") {
+  const effectiveState: ComponentState =
+    state !== "normal" ? state : query.isLoading ? "loading" : query.isError ? "error" : "normal";
+
+  if (effectiveState === "loading") {
     return (
       <Card className="border-border/40 bg-card/50 backdrop-blur-sm h-full flex flex-col justify-between">
         <CardHeader className="pb-2">
@@ -41,7 +52,7 @@ export function MissionStatusCard({ state = "normal", onRetry }: MissionStatusCa
     );
   }
 
-  if (state === "empty") {
+  if (effectiveState === "empty") {
     return (
       <Card className="border-border/40 bg-card/50 backdrop-blur-sm h-full flex flex-col justify-center items-center p-6 text-center">
         <Radio className="h-8 w-8 text-muted-foreground/60 mb-2 animate-bounce" />
@@ -50,7 +61,7 @@ export function MissionStatusCard({ state = "normal", onRetry }: MissionStatusCa
           Waiting for Aditya-L1 ground station visibility window.
         </p>
         {onRetry && (
-          <button 
+          <button
             onClick={onRetry}
             className="mt-4 text-xs flex items-center gap-1.5 px-3 py-1.5 rounded border border-border/80 hover:bg-muted text-foreground transition-all"
           >
@@ -61,7 +72,7 @@ export function MissionStatusCard({ state = "normal", onRetry }: MissionStatusCa
     );
   }
 
-  if (state === "error") {
+  if (effectiveState === "error") {
     return (
       <Card className="border-red/40 bg-red-950/10 backdrop-blur-sm h-full flex flex-col justify-center p-6 border">
         <div className="flex items-start gap-3">
@@ -69,11 +80,11 @@ export function MissionStatusCard({ state = "normal", onRetry }: MissionStatusCa
           <div className="space-y-1">
             <h3 className="text-sm font-semibold text-red">Link Sync Failure</h3>
             <p className="text-xs text-red/80 font-mono">
-              ERR_TELEMETRY_SYNC_LOSS: Ground antenna alignment offset. DSN code: 0x4B3A
+              ERR_TELEMETRY_SYNC_LOSS: Backend API unreachable at {process.env.NEXT_PUBLIC_API_URL || "http://localhost:5050/api"}.
             </p>
             {onRetry && (
-              <button 
-                onClick={onRetry}
+              <button
+                onClick={() => { onRetry(); query.refetch(); }}
                 className="mt-3 text-xs flex items-center gap-1.5 px-2.5 py-1 rounded bg-red/20 hover:bg-red/35 text-red transition-all border border-red/30"
               >
                 <RefreshCw className="h-3 w-3" /> Re-align Antenna
@@ -85,6 +96,9 @@ export function MissionStatusCard({ state = "normal", onRetry }: MissionStatusCa
     );
   }
 
+  const data = query.data;
+  const isNominal = data?.status === "NOMINAL";
+
   return (
     <Card className="border-border/40 bg-card/50 backdrop-blur-sm h-full flex flex-col justify-between hover:border-border/80 transition-colors">
       <CardHeader className="pb-2">
@@ -95,58 +109,41 @@ export function MissionStatusCard({ state = "normal", onRetry }: MissionStatusCa
           </CardTitle>
           <div className="flex items-center gap-1">
             <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald"></span>
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isNominal ? "bg-emerald" : "bg-amber"}`}></span>
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${isNominal ? "bg-emerald" : "bg-amber"}`}></span>
             </span>
-            <span className="text-[10px] font-mono text-emerald uppercase font-medium">L1_OK</span>
+            <span className={`text-[10px] font-mono uppercase font-medium ${isNominal ? "text-emerald" : "text-amber"}`}>L1_OK</span>
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div>
-          <div className="text-2xl font-bold tracking-tight">NOMINAL</div>
+          <div className="text-2xl font-bold tracking-tight">{data?.status ?? "NOMINAL"}</div>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1 font-mono">
             <Wifi className="h-3 w-3 text-emerald" />
             <span>ISRO IDSN-32 locked</span>
             <span className="text-border">|</span>
-            <span className="text-emerald">98.2 dBHz</span>
+            <span className="text-emerald">{data?.link_margin_dbhz.toFixed(1) ?? "--"} dBHz</span>
           </div>
         </div>
 
         {/* Payload Status Grid */}
         <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border/20">
-          <div className="bg-muted/20 p-2 rounded border border-border/10 flex flex-col justify-between">
-            <span className="text-[10px] text-muted-foreground font-mono">SoLEXS</span>
-            <span className="text-xs font-medium text-foreground mt-1 flex items-center justify-between">
-              <span>Active</span>
-              <span className="text-[10px] text-emerald font-mono">100%</span>
-            </span>
-          </div>
-          <div className="bg-muted/20 p-2 rounded border border-border/10 flex flex-col justify-between">
-            <span className="text-[10px] text-muted-foreground font-mono">HEL1OS</span>
-            <span className="text-xs font-medium text-foreground mt-1 flex items-center justify-between">
-              <span>Active</span>
-              <span className="text-[10px] text-emerald font-mono">98%</span>
-            </span>
-          </div>
-          <div className="bg-muted/20 p-2 rounded border border-border/10 flex flex-col justify-between">
-            <span className="text-[10px] text-muted-foreground font-mono">ASPEX</span>
-            <span className="text-xs font-medium text-foreground mt-1 flex items-center justify-between">
-              <span>Standby</span>
-              <span className="text-[10px] text-cyan font-mono">92%</span>
-            </span>
-          </div>
-          <div className="bg-muted/20 p-2 rounded border border-border/10 flex flex-col justify-between">
-            <span className="text-[10px] text-muted-foreground font-mono">PAPA</span>
-            <span className="text-xs font-medium text-foreground mt-1 flex items-center justify-between">
-              <span>Active</span>
-              <span className="text-[10px] text-emerald font-mono">100%</span>
-            </span>
-          </div>
+          {Object.entries(data?.payloads ?? {}).map(([name, payload]) => (
+            <div key={name} className="bg-muted/20 p-2 rounded border border-border/10 flex flex-col justify-between">
+              <span className="text-[10px] text-muted-foreground font-mono">{name}</span>
+              <span className="text-xs font-medium text-foreground mt-1 flex items-center justify-between">
+                <span>{payload.state}</span>
+                <span className={`text-[10px] font-mono ${payload.state === "Active" ? "text-emerald" : "text-cyan"}`}>
+                  {payload.duty_cycle_pct}%
+                </span>
+              </span>
+            </div>
+          ))}
         </div>
 
         <div className="text-[10px] text-muted-foreground font-mono flex items-center gap-1 justify-between pt-1">
-          <span>Downlink Packets: <span className="text-foreground">2,845,920</span></span>
+          <span>Downlink Packets: <span className="text-foreground">{(data?.downlink_packets ?? 0).toLocaleString()}</span></span>
           <span>{time}</span>
         </div>
       </CardContent>
